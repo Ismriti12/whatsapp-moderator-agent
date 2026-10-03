@@ -1,0 +1,2 @@
+Keep this folder tracked in git. Generated files (SQLite DB, Playwright browser
+profile) are ignored via .gitignore so they are never committed.
