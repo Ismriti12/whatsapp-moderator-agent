@@ -1,0 +1,13 @@
+playwright>=1.47.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.6
+sqlalchemy>=2.0.35
+pandas>=2.2.2
+streamlit>=1.38.0
+google-genai>=0.3.0
+python-dotenv>=1.0.1
+
+# Postgres support is optional (SQLite is the zero-setup default database).
+# Install with: pip install -r requirements-postgres.txt
+# (kept out of the base requirements because psycopg2-binary needs prebuilt
+# wheels that aren't always available for the very latest Python versions)
