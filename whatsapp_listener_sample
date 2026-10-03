@@ -52,28 +52,45 @@ _last_row_count_logged: int | None = None
 
 
 def _open_target_chat(page: Page, chat_name: str) -> None:
-    """Help the user find the configured chat, then wait for it to be open.
+    """Wait for the user to manually open the configured chat.
 
-    WhatsApp Web's search-result DOM changes often enough that clicking the
-    right result automatically is unreliable across versions/languages. To
-    stay robust, this only pre-fills the search box (so the chat is one
-    click away) and then waits for a real message compose box to appear,
-    which only happens once a chat is actually open. The user clicks the
-    chat themselves.
+    WhatsApp Web's search-box selector changes often enough across versions
+    that automating "find and click the chat" is unreliable. Instead, the
+    user is asked to open the chat themselves (search box or chat list,
+    whichever works on their WhatsApp Web version); this function polls for
+    a real message compose box to appear (which only happens once a chat is
+    open), logging a heartbeat periodically so it's clear the script is
+    still alive and waiting.
     """
-    page.wait_for_selector(CHAT_SEARCH_SELECTOR, timeout=120_000)
-    search_box = page.locator(CHAT_SEARCH_SELECTOR).first
-    search_box.click()
-    search_box.fill(chat_name)
-
     logger.info(
-        "Search results for '%s' are now showing in the browser window. "
-        "Please click the chat to open it (you only need to do this once per run).",
+        "ACTION NEEDED: In the browser window, please manually open the chat "
+        "'%s' (use the search box or click it in the chat list).",
         chat_name,
     )
-    page.wait_for_selector(MESSAGE_COMPOSE_SELECTOR, timeout=180_000)
-    page.wait_for_timeout(1000)
-    logger.info("Chat is open. Listening will begin now.")
+
+    max_wait_seconds = 180
+    poll_seconds = 2
+    heartbeat_every_seconds = 15
+    elapsed = 0
+
+    while elapsed < max_wait_seconds:
+        if page.locator(MESSAGE_COMPOSE_SELECTOR).count() > 0:
+            page.wait_for_timeout(1000)
+            logger.info("Chat is open. Listening will begin now.")
+            return
+        if elapsed % heartbeat_every_seconds == 0:
+            logger.info(
+                "Still waiting for the chat to be opened... (%ss elapsed, timeout at %ss)",
+                elapsed,
+                max_wait_seconds,
+            )
+        page.wait_for_timeout(poll_seconds * 1000)
+        elapsed += poll_seconds
+
+    raise TimeoutError(
+        f"Timed out after {max_wait_seconds}s waiting for chat '{chat_name}' to be opened. "
+        "Make sure you clicked into the chat so the message box at the bottom is visible."
+    )
 
 
 def _extract_new_messages(page: Page, chat_name: str) -> list[IncomingMessage]:
@@ -155,15 +172,19 @@ def run_listener(chat_name: str | None = None, poll_interval: float | None = Non
             "No target chat configured. Set WHATSAPP_TARGET_CHAT in .env or pass chat_name=."
         )
 
+    logger.info("Starting WhatsApp listener for chat '%s'", chat_name)
+    logger.info("Launching browser (first launch can take a few seconds)...")
+
     with sync_playwright() as pw:
         context = pw.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
             headless=HEADLESS,
         )
+        logger.info("Browser launched. Opening WhatsApp Web...")
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(WHATSAPP_URL)
+        logger.info("Page loaded. If a QR code is shown, scan it with your phone now.")
 
-        logger.info("If a QR code is shown, scan it with your phone once. Waiting for login...")
         _open_target_chat(page, chat_name)
         logger.info("Listening for new messages in '%s' every %ss", chat_name, poll_interval)
 
